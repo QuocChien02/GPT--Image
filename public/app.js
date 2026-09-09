@@ -1,7 +1,9 @@
 // ============ STATE ============
 let CONFIG = null;
 let currentModel = null;
-let refFiles = []; // { file, previewUrl }
+let refFiles = [];        // { file, previewUrl }
+let resultCount = 0;
+let skeletonTimer = null;
 
 // ============ ELEMENTS ============
 const loginScreen = document.getElementById('loginScreen');
@@ -30,13 +32,15 @@ const costUsdEl = document.getElementById('costUsd');
 const genBtn = document.getElementById('genBtn');
 const errorBox = document.getElementById('errorBox');
 const gallery = document.getElementById('gallery');
+const emptyState = document.getElementById('emptyState');
+const resultsCount = document.getElementById('resultsCount');
 const toast = document.getElementById('toast');
 
 // ============ TIỆN ÍCH ============
 function showToast(msg) {
   toast.textContent = msg;
   toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 1800);
+  setTimeout(() => toast.classList.remove('show'), 2200);
 }
 function showError(msg) {
   errorBox.textContent = msg;
@@ -61,14 +65,13 @@ const QUALITY_LABELS = {
   standard: 'Tiêu chuẩn', hd: 'HD',
 };
 
-// Metadata hiển thị cho từng size (giá trị thật lấy từ model.sizes)
 const SIZE_META = {
-  auto:        { w: 26, h: 26, label: 'Tự động', dashed: true },
-  '1024x1024': { w: 26, h: 26, label: 'Vuông 1:1' },
-  '1536x1024': { w: 34, h: 23, label: 'Ngang 3:2' },
-  '1024x1536': { w: 23, h: 34, label: 'Dọc 2:3' },
-  '1792x1024': { w: 36, h: 21, label: 'Ngang 7:4' },
-  '1024x1792': { w: 21, h: 36, label: 'Dọc 4:7' },
+  auto:        { w: 24, h: 24, label: 'Tự động', dashed: true, ratio: 1 },
+  '1024x1024': { w: 24, h: 24, label: 'Vuông 1:1', ratio: 1 },
+  '1536x1024': { w: 30, h: 20, label: 'Ngang 3:2', ratio: 1.5 },
+  '1024x1536': { w: 20, h: 30, label: 'Dọc 2:3', ratio: 2 / 3 },
+  '1792x1024': { w: 32, h: 18, label: 'Ngang 7:4', ratio: 1.75 },
+  '1024x1792': { w: 18, h: 32, label: 'Dọc 4:7', ratio: 1 / 1.75 },
 };
 
 // ============ KHỞI TẠO ============
@@ -87,7 +90,7 @@ async function init() {
 
   fillSelect(presetEl, CONFIG.stylePresets, (p) => p.label, (p) => p.id);
 
-  onModelChange(); // dựng các lựa chọn theo model mặc định
+  onModelChange();
 
   [qualityEl, countEl].forEach((el) => el.addEventListener('change', updateCostEstimate));
 
@@ -100,7 +103,6 @@ async function init() {
   }
 }
 
-// Khi đổi model: dựng lại size/quality/format/count theo đúng năng lực model đó
 function onModelChange() {
   currentModel = CONFIG.models.find((m) => m.id === modelEl.value);
   if (!currentModel) return;
@@ -111,7 +113,6 @@ function onModelChange() {
   const counts = Array.from({ length: currentModel.maxImages }, (_, i) => i + 1);
   fillSelect(countEl, counts, (c) => `${c} ảnh`);
 
-  // Ẩn/hiện phần ảnh tham chiếu và định dạng theo khả năng model
   if (currentModel.supportsReferenceImages) {
     refField.classList.remove('hidden');
   } else {
@@ -122,14 +123,13 @@ function onModelChange() {
   }
   formatField.classList.toggle('hidden', !currentModel.supportsOutputFormat);
 
-  // Ghi chú giới hạn của model
   const notes = [];
   if (!currentModel.supportsReferenceImages) notes.push('không dùng được ảnh tham chiếu');
   if (currentModel.maxImages === 1) notes.push('chỉ tạo 1 ảnh mỗi lượt');
   if (!currentModel.supportsOutputFormat) notes.push('chỉ xuất PNG');
   modelHint.textContent = notes.length ? `Model này ${notes.join(', ')}.` : '';
 
-  sizeHint.textContent = 'Đây là các tỉ lệ model hỗ trợ sẵn — ảnh tạo ra đúng tỉ lệ, không bị cắt.';
+  sizeHint.textContent = 'Ảnh tạo ra đúng tỉ lệ đã chọn. Ghi tỉ lệ trong prompt không có tác dụng.';
 
   updateCostEstimate();
 }
@@ -137,7 +137,7 @@ function onModelChange() {
 function renderSizeSwatches() {
   sizeSwatches.innerHTML = '';
   currentModel.sizes.forEach((size, idx) => {
-    const meta = SIZE_META[size] || { w: 26, h: 26, label: size };
+    const meta = SIZE_META[size] || { w: 24, h: 24, label: size };
     const wrap = document.createElement('label');
     wrap.className = 'swatch';
     wrap.innerHTML = `
@@ -257,6 +257,38 @@ function updateCostEstimate() {
   costUsdEl.textContent = `~$${totalUsd.toFixed(4)} · ${count} ảnh × ~$${unit}/ảnh`;
 }
 
+// ============ SKELETON KHI ĐANG TẠO ============
+function showSkeletons(count, sizeKey) {
+  emptyState.classList.add('hidden');
+  const ratio = SIZE_META[sizeKey]?.ratio || 1;
+  const startedAt = Date.now();
+
+  for (let i = 0; i < count; i++) {
+    const sk = document.createElement('div');
+    sk.className = 'skeleton';
+    sk.dataset.skeleton = 'true';
+    sk.innerHTML = `
+      <div class="skeleton-img" style="--sk-ratio:${ratio}"></div>
+      <div class="skeleton-note">Đang tạo ảnh… <span class="skeleton-timer">0s</span></div>
+    `;
+    gallery.prepend(sk);
+  }
+
+  // Đếm giây để biết đã chờ bao lâu
+  skeletonTimer = setInterval(() => {
+    const secs = Math.floor((Date.now() - startedAt) / 1000);
+    document.querySelectorAll('.skeleton-timer').forEach((el) => {
+      el.textContent = `${secs}s`;
+    });
+  }, 1000);
+}
+
+function clearSkeletons() {
+  if (skeletonTimer) { clearInterval(skeletonTimer); skeletonTimer = null; }
+  document.querySelectorAll('[data-skeleton="true"]').forEach((el) => el.remove());
+  if (resultCount === 0) emptyState.classList.remove('hidden');
+}
+
 // ============ TẠO ẢNH ============
 genBtn.addEventListener('click', generateImages);
 
@@ -265,13 +297,16 @@ async function generateImages() {
   const prompt = promptEl.value.trim();
   if (!prompt) { showError('Vui lòng nhập prompt.'); return; }
 
+  const selectedSize = getSelectedSize();
+  const nImages = parseInt(countEl.value, 10) || 1;
+
   const formData = new FormData();
   formData.append('model', modelEl.value);
   formData.append('prompt', prompt);
-  formData.append('size', getSelectedSize());
+  formData.append('size', selectedSize);
   formData.append('quality', qualityEl.value);
   formData.append('format', formatEl.value);
-  formData.append('n', countEl.value);
+  formData.append('n', String(nImages));
   formData.append('presetId', presetEl.value);
   if (currentModel.supportsReferenceImages) {
     refFiles.forEach((rf) => formData.append('images', rf.file));
@@ -279,16 +314,20 @@ async function generateImages() {
 
   genBtn.disabled = true;
   genBtn.innerHTML = '<span class="spinner"></span>Đang tạo ảnh...';
+  showSkeletons(nImages, selectedSize);
 
   try {
     const res = await fetch('/api/generate', { method: 'POST', body: formData });
     const data = await res.json();
+
+    clearSkeletons();
 
     if (res.status === 401) { showLogin(); return; }
     if (!res.ok) { showError(data.error || 'Có lỗi xảy ra, vui lòng thử lại.'); return; }
 
     renderResults(data.images, data.meta);
   } catch (err) {
+    clearSkeletons();
     showError('Không kết nối được tới server: ' + err.message);
   } finally {
     genBtn.disabled = false;
@@ -297,13 +336,15 @@ async function generateImages() {
 }
 
 function renderResults(base64Images, meta) {
+  emptyState.classList.add('hidden');
+
   base64Images.forEach((b64, idx) => {
     const mime = meta?.format === 'jpeg' ? 'image/jpeg' : meta?.format === 'webp' ? 'image/webp' : 'image/png';
     const src = `data:${mime};base64,${b64}`;
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <img src="${src}" alt="Kết quả" />
+      <img src="${src}" alt="Ảnh kết quả" />
       <div class="card-actions">
         <a href="${src}" download="gpt-image-${Date.now()}-${idx + 1}.${meta?.format || 'png'}">⬇ Tải</a>
         <button data-action="reuse">↺ Dùng làm ref</button>
@@ -311,7 +352,10 @@ function renderResults(base64Images, meta) {
     `;
     card.querySelector('[data-action="reuse"]').addEventListener('click', () => reuseAsReference(src));
     gallery.prepend(card);
+    resultCount++;
   });
+
+  resultsCount.textContent = `${resultCount} ảnh trong phiên này`;
 
   if (meta?.estimatedCostVnd != null) {
     showToast(`Đã tạo ${base64Images.length} ảnh — ~${formatVnd(meta.estimatedCostVnd)}`);
