@@ -35,6 +35,11 @@ const gallery = document.getElementById('gallery');
 const emptyState = document.getElementById('emptyState');
 const resultsCount = document.getElementById('resultsCount');
 const toast = document.getElementById('toast');
+const lightbox = document.getElementById('lightbox');
+const lightboxImg = document.getElementById('lightboxImg');
+const lightboxClose = document.getElementById('lightboxClose');
+const lightboxInfo = document.getElementById('lightboxInfo');
+const lightboxDownload = document.getElementById('lightboxDownload');
 
 // ============ TIỆN ÍCH ============
 function showToast(msg) {
@@ -289,6 +294,40 @@ function clearSkeletons() {
   if (resultCount === 0) emptyState.classList.remove('hidden');
 }
 
+// ============ LIGHTBOX XEM TRƯỚC ============
+function openLightbox(src, filename, meta) {
+  lightboxImg.src = src;
+  lightboxDownload.href = src;
+  lightboxDownload.download = filename;
+
+  // Hiện kích thước thật của ảnh sau khi load xong
+  lightboxImg.onload = () => {
+    const dims = `${lightboxImg.naturalWidth} × ${lightboxImg.naturalHeight}px`;
+    const parts = [dims];
+    if (meta?.model) parts.push(meta.model);
+    if (meta?.format) parts.push(meta.format.toUpperCase());
+    lightboxInfo.textContent = parts.join(' · ');
+  };
+
+  lightbox.classList.remove('hidden');
+  lightboxClose.focus();
+}
+
+function closeLightbox() {
+  lightbox.classList.add('hidden');
+  lightboxImg.src = '';
+  lightboxInfo.textContent = '';
+}
+
+lightboxClose.addEventListener('click', closeLightbox);
+// Bấm ra nền ngoài ảnh cũng đóng
+lightbox.addEventListener('click', (e) => {
+  if (e.target === lightbox) closeLightbox();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !lightbox.classList.contains('hidden')) closeLightbox();
+});
+
 // ============ TẠO ẢNH ============
 genBtn.addEventListener('click', generateImages);
 
@@ -341,15 +380,17 @@ function renderResults(base64Images, meta) {
   base64Images.forEach((b64, idx) => {
     const mime = meta?.format === 'jpeg' ? 'image/jpeg' : meta?.format === 'webp' ? 'image/webp' : 'image/png';
     const src = `data:${mime};base64,${b64}`;
+    const filename = `gpt-image-${Date.now()}-${idx + 1}.${meta?.format || 'png'}`;
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <img src="${src}" alt="Ảnh kết quả" />
+      <img src="${src}" alt="Ảnh kết quả" title="Bấm để xem lớn" />
       <div class="card-actions">
-        <a href="${src}" download="gpt-image-${Date.now()}-${idx + 1}.${meta?.format || 'png'}">⬇ Tải</a>
+        <a href="${src}" download="${filename}">⬇ Tải</a>
         <button data-action="reuse">↺ Dùng làm ref</button>
       </div>
     `;
+    card.querySelector('img').addEventListener('click', () => openLightbox(src, filename, meta));
     card.querySelector('[data-action="reuse"]').addEventListener('click', () => reuseAsReference(src));
     gallery.prepend(card);
     resultCount++;
