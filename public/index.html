@@ -8,11 +8,10 @@
 </head>
 <body>
 
-<!-- Màn hình đăng nhập -->
+<!-- Màn hình đăng nhập (chỉ hiện nếu server yêu cầu mật khẩu) -->
 <div id="loginScreen" class="hidden">
   <div class="login-box">
-    <div class="lock-icon">✦</div>
-    <h2>Nhập mật khẩu để tiếp tục</h2>
+    <h2>🔒 Nhập mật khẩu để tiếp tục</h2>
     <input type="password" id="passwordInput" placeholder="Mật khẩu" />
     <button id="loginBtn">Đăng nhập</button>
     <div class="login-error" id="loginError"></div>
@@ -20,102 +19,65 @@
 </div>
 
 <!-- Ứng dụng chính -->
-<div id="appScreen" class="app hidden">
-  <header class="app-header">
-    <div class="header-text">
-      <span class="brand-mark">Studio ảnh AI</span>
-      <h1>GPT Image Studio</h1>
+<div id="appScreen" class="wrap hidden">
+  <div class="top-bar">
+    <div>
+      <h1>🎨 GPT Image Studio</h1>
+      <div class="subtitle">Tạo ảnh AI bằng gpt-image-2 — text→ảnh, ảnh→ảnh, preset phong cách</div>
     </div>
     <button id="logoutBtn" class="hidden">Đăng xuất</button>
-  </header>
-
-  <div class="app-body">
-    <!-- CỘT TRÁI: bảng điều khiển -->
-    <aside class="controls">
-      <div class="field">
-        <label class="panel-label" for="model">Model tạo ảnh</label>
-        <select id="model"></select>
-        <div class="hint" id="modelHint"></div>
-      </div>
-
-      <div class="field">
-        <label class="panel-label" for="prompt">Prompt</label>
-        <textarea id="prompt" placeholder="Mô tả ảnh bạn muốn tạo..."></textarea>
-      </div>
-
-      <div class="field" id="refField">
-        <label class="panel-label">Ảnh tham chiếu (tối đa 4, tuỳ chọn)</label>
-        <div id="refDropzone">Bấm để chọn ảnh, hoặc kéo-thả vào đây</div>
-        <input type="file" id="refInput" accept="image/png,image/jpeg,image/webp" multiple class="hidden" />
-        <div id="refThumbs"></div>
-      </div>
-
-      <div class="field">
-        <label class="panel-label" for="preset">Phong cách (preset)</label>
-        <select id="preset"></select>
-      </div>
-
-      <div class="field">
-        <label class="panel-label">Tỉ lệ khung hình</label>
-        <div class="swatch-grid" id="sizeSwatches"></div>
-        <div class="hint" id="sizeHint"></div>
-      </div>
-
-      <div class="row">
-        <div class="field">
-          <label class="panel-label" for="quality">Chất lượng</label>
-          <select id="quality"></select>
-        </div>
-        <div class="field" id="formatField">
-          <label class="panel-label" for="format">Định dạng</label>
-          <select id="format"></select>
-        </div>
-        <div class="field">
-          <label class="panel-label" for="count">Số ảnh</label>
-          <select id="count"></select>
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="cost-stat">
-          <div>
-            <div class="cost-main" id="costVnd">—</div>
-            <div class="cost-sub" id="costUsd"></div>
-          </div>
-          <div class="cost-note">Số liệu tham khảo — kiểm tra giá thật trên trang OpenAI</div>
-        </div>
-      </div>
-
-      <button class="primary" id="genBtn">Tạo ảnh</button>
-      <div class="error" id="errorBox"></div>
-    </aside>
-
-    <!-- CỘT PHẢI: kết quả -->
-    <main class="results">
-      <div class="results-head">
-        <span class="panel-label" id="resultsLabel">Kết quả</span>
-        <span class="results-count" id="resultsCount"></span>
-      </div>
-      <div class="gallery" id="gallery"></div>
-      <div class="empty-state" id="emptyState">
-        <div class="empty-mark">✦</div>
-        <p>Ảnh bạn tạo sẽ hiện ở đây.</p>
-      </div>
-    </main>
   </div>
+
+  <div class="panel">
+    <div class="field">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="Mô tả ảnh bạn muốn tạo..."></textarea>
+    </div>
+
+    <div class="field">
+      <label>Ảnh tham chiếu (tối đa 4, tuỳ chọn)</label>
+      <div id="refDropzone">📎 Bấm để chọn ảnh, hoặc kéo-thả vào đây</div>
+      <input type="file" id="refInput" accept="image/png,image/jpeg,image/webp" multiple class="hidden" />
+      <div id="refThumbs"></div>
+      <div class="hint">Nếu có ảnh tham chiếu, hệ thống sẽ tạo ảnh dựa trên (các) ảnh này</div>
+    </div>
+
+    <div class="field">
+      <label for="preset">Phong cách (preset)</label>
+      <select id="preset"></select>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="size">Tỉ lệ khung hình</label>
+        <select id="size"></select>
+      </div>
+      <div class="field">
+        <label for="quality">Chất lượng</label>
+        <select id="quality"></select>
+      </div>
+      <div class="field">
+        <label for="format">Định dạng</label>
+        <select id="format"></select>
+      </div>
+      <div class="field">
+        <label for="count">Số ảnh đầu ra</label>
+        <select id="count"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="cost-box" id="costBox">Chi phí ước tính: —</div>
+    </div>
+
+    <button class="primary" id="genBtn">Tạo ảnh</button>
+    <div class="error" id="errorBox"></div>
+  </div>
+
+  <div class="gallery" id="gallery"></div>
 </div>
 
 <div class="toast" id="toast"></div>
-
-<!-- Lightbox xem trước ảnh -->
-<div class="lightbox hidden" id="lightbox">
-  <button class="lightbox-close" id="lightboxClose" title="Đóng (Esc)">✕</button>
-  <img id="lightboxImg" alt="Xem trước ảnh" />
-  <div class="lightbox-bar">
-    <span class="lightbox-info" id="lightboxInfo"></span>
-    <a class="lightbox-download" id="lightboxDownload" download>⬇ Tải ảnh này</a>
-  </div>
-</div>
 
 <script src="/app.js"></script>
 </body>
