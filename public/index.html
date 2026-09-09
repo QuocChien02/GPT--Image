@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GPT Image Studio</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<!-- Màn hình đăng nhập (chỉ hiện nếu server yêu cầu mật khẩu) -->
+<div id="loginScreen" class="hidden">
+  <div class="login-box">
+    <h2>🔒 Nhập mật khẩu để tiếp tục</h2>
+    <input type="password" id="passwordInput" placeholder="Mật khẩu" />
+    <button id="loginBtn">Đăng nhập</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- Ứng dụng chính -->
+<div id="appScreen" class="wrap hidden">
+  <div class="top-bar">
+    <div>
+      <h1>🎨 GPT Image Studio</h1>
+      <div class="subtitle">Tạo ảnh AI bằng gpt-image-2 — text→ảnh, ảnh→ảnh, preset phong cách</div>
+    </div>
+    <button id="logoutBtn" class="hidden">Đăng xuất</button>
+  </div>
+
+  <div class="panel">
+    <div class="field">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="Mô tả ảnh bạn muốn tạo..."></textarea>
+    </div>
+
+    <div class="field">
+      <label>Ảnh tham chiếu (tối đa 4, tuỳ chọn)</label>
+      <div id="refDropzone">📎 Bấm để chọn ảnh, hoặc kéo-thả vào đây</div>
+      <input type="file" id="refInput" accept="image/png,image/jpeg,image/webp" multiple class="hidden" />
+      <div id="refThumbs"></div>
+      <div class="hint">Nếu có ảnh tham chiếu, hệ thống sẽ tạo ảnh dựa trên (các) ảnh này</div>
+    </div>
+
+    <div class="field">
+      <label for="preset">Phong cách (preset)</label>
+      <select id="preset"></select>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="size">Tỉ lệ khung hình</label>
+        <select id="size"></select>
+      </div>
+      <div class="field">
+        <label for="quality">Chất lượng</label>
+        <select id="quality"></select>
+      </div>
+      <div class="field">
+        <label for="format">Định dạng</label>
+        <select id="format"></select>
+      </div>
+      <div class="field">
+        <label for="count">Số ảnh đầu ra</label>
+        <select id="count"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="cost-box" id="costBox">Chi phí ước tính: —</div>
+    </div>
+
+    <button class="primary" id="genBtn">Tạo ảnh</button>
+    <div class="error" id="errorBox"></div>
+  </div>
+
+  <div class="gallery" id="gallery"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
