@@ -157,7 +157,7 @@ app.get('/api/session-status', (req, res) => {
 // ===================== RATE LIMIT TẠO ẢNH =====================
 const generateLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 12,
+  max: 40, // chế độ hàng loạt gửi mỗi ảnh 1 request riêng nên cần hạn mức cao hơn
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Bạn đang gửi yêu cầu quá nhanh, vui lòng chờ một chút rồi thử lại' },

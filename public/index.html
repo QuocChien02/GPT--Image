@@ -39,8 +39,21 @@
       </div>
 
       <div class="field">
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="single">1 prompt</button>
+          <button class="mode-tab" data-mode="batch">Hàng loạt</button>
+        </div>
+      </div>
+
+      <div class="field" id="singlePromptField">
         <label class="panel-label" for="prompt">Prompt</label>
         <textarea id="prompt" placeholder="Mô tả ảnh bạn muốn tạo..."></textarea>
+      </div>
+
+      <div class="field hidden" id="batchPromptField">
+        <label class="panel-label" for="batchPrompt">Danh sách prompt — mỗi dòng 1 prompt</label>
+        <textarea id="batchPrompt" placeholder="Cô gái mặc áo dài trắng bên hồ Gươm&#10;Người mẫu nam áo khoác da, phố đêm Hà Nội&#10;Bé gái cầm bóng bay, công viên mùa thu&#10;..."></textarea>
+        <div class="batch-summary" id="batchSummary">Chưa nhập prompt nào</div>
       </div>
 
       <div class="field" id="refField">
@@ -87,6 +100,11 @@
       </div>
 
       <button class="primary" id="genBtn">Tạo ảnh</button>
+      <button class="stop-btn hidden" id="stopBtn">■ Dừng lại</button>
+      <div class="batch-progress hidden" id="batchProgress">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText"></div>
+      </div>
       <div class="error" id="errorBox"></div>
     </aside>
 
@@ -97,6 +115,7 @@
         <span class="results-count" id="resultsCount"></span>
         <div class="results-tools">
           <span class="storage-info" id="storageInfo"></span>
+          <button class="ghost-btn" id="downloadAllBtn">⬇ Tải tất cả</button>
           <button class="ghost-btn" id="clearAllBtn">Xoá tất cả</button>
         </div>
       </div>

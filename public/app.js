@@ -13,7 +13,10 @@ let CONFIG = null;
 let currentModel = null;
 let refFiles = [];        // { file, previewUrl }
 let resultCount = 0;
-let skeletonTimer = null;
+let currentMode = 'single';   // 'single' | 'batch'
+let isRunning = false;
+let stopRequested = false;
+const CONCURRENCY = 2;        // số ảnh tạo song song — 2 là an toàn với rate limit OpenAI
 
 // ============ ELEMENTS ============
 const loginScreen = document.getElementById('loginScreen');
@@ -26,6 +29,16 @@ const logoutBtn = document.getElementById('logoutBtn');
 const modelEl = document.getElementById('model');
 const modelHint = document.getElementById('modelHint');
 const promptEl = document.getElementById('prompt');
+const batchPromptEl = document.getElementById('batchPrompt');
+const singlePromptField = document.getElementById('singlePromptField');
+const batchPromptField = document.getElementById('batchPromptField');
+const batchSummary = document.getElementById('batchSummary');
+const modeTabs = document.querySelectorAll('.mode-tab');
+const stopBtn = document.getElementById('stopBtn');
+const batchProgress = document.getElementById('batchProgress');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const downloadAllBtn = document.getElementById('downloadAllBtn');
 const refField = document.getElementById('refField');
 const refDropzone = document.getElementById('refDropzone');
 const refInput = document.getElementById('refInput');
@@ -279,118 +292,270 @@ function updateCostEstimate() {
   const totalVnd = totalUsd * (CONFIG.usdToVndRate || 25400);
   costVndEl.textContent = `~${formatVnd(totalVnd)}`;
   costUsdEl.textContent = `~$${totalUsd.toFixed(4)} · ${count} ảnh × ~$${unit}/ảnh`;
+  updateBatchSummary(); // cập nhật luôn tổng chi phí của chế độ hàng loạt
 }
 
-// ============ SKELETON KHI ĐANG TẠO ============
-function showSkeletons(count, sizeKey) {
-  emptyState.classList.add('hidden');
-  const ratio = SIZE_META[sizeKey]?.ratio || 1;
-  const startedAt = Date.now();
+// ============ CHUYỂN CHẾ ĐỘ ĐƠN / HÀNG LOẠT ============
+modeTabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    if (isRunning) return; // đang chạy thì không cho đổi chế độ
+    currentMode = tab.dataset.mode;
+    modeTabs.forEach((t) => t.classList.toggle('active', t === tab));
+    singlePromptField.classList.toggle('hidden', currentMode !== 'single');
+    batchPromptField.classList.toggle('hidden', currentMode !== 'batch');
+    updateBatchSummary();
+    updateCostEstimate();
+    genBtn.textContent = currentMode === 'batch' ? 'Tạo hàng loạt' : 'Tạo ảnh';
+  });
+});
 
-  for (let i = 0; i < count; i++) {
-    const sk = document.createElement('div');
-    sk.className = 'skeleton';
-    sk.dataset.skeleton = 'true';
-    sk.innerHTML = `
-      <div class="skeleton-img" style="--sk-ratio:${ratio}"></div>
-      <div class="skeleton-note">Đang tạo ảnh… <span class="skeleton-timer">0s</span></div>
-    `;
-    gallery.prepend(sk);
+/** Tách textarea thành danh sách prompt, bỏ dòng trống và trùng lặp liền kề. */
+function parseBatchPrompts() {
+  return batchPromptEl.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function updateBatchSummary() {
+  if (currentMode !== 'batch') return;
+  const prompts = parseBatchPrompts();
+  if (prompts.length === 0) {
+    batchSummary.textContent = 'Chưa nhập prompt nào';
+    return;
   }
+  const perImage = getUnitPrice();
+  const nPerPrompt = parseInt(countEl.value, 10) || 1;
+  const totalImages = prompts.length * nPerPrompt;
+  if (perImage == null) {
+    batchSummary.innerHTML = `<strong>${prompts.length}</strong> prompt · ${totalImages} ảnh`;
+    return;
+  }
+  const totalVnd = perImage * totalImages * (CONFIG.usdToVndRate || 25400);
+  batchSummary.innerHTML =
+    `<strong>${prompts.length}</strong> prompt × ${nPerPrompt} ảnh = <strong>${totalImages}</strong> ảnh · ước tính <strong>~${formatVnd(totalVnd)}</strong>`;
+}
 
-  // Đếm giây để biết đã chờ bao lâu
-  skeletonTimer = setInterval(() => {
-    const secs = Math.floor((Date.now() - startedAt) / 1000);
-    document.querySelectorAll('.skeleton-timer').forEach((el) => {
-      el.textContent = `${secs}s`;
+batchPromptEl.addEventListener('input', updateBatchSummary);
+
+function getUnitPrice() {
+  if (!CONFIG || !currentModel) return null;
+  const rawSize = getSelectedSize();
+  const size = rawSize === 'auto' ? '1024x1024' : rawSize;
+  return CONFIG.pricePerImageUsd?.[currentModel.id]?.[qualityEl.value]?.[size] ?? null;
+}
+
+// ============ THẺ HÀNG ĐỢI ============
+// Mỗi prompt trong loạt có 1 thẻ riêng, đổi trạng thái: chờ -> đang tạo -> xong / lỗi
+function createQueueCard(prompt, index, total) {
+  const ratio = SIZE_META[getSelectedSize()]?.ratio || 1;
+  const card = document.createElement('div');
+  card.className = 'queue-card is-waiting';
+  card.innerHTML = `
+    <div class="queue-visual" style="--sk-ratio:${ratio}">
+      <span class="queue-badge">Chờ · ${index + 1}/${total}</span>
+      <span class="queue-prompt">${escapeHtml(prompt)}</span>
+    </div>
+  `;
+  gallery.prepend(card);
+  return card;
+}
+
+function setQueueCardRunning(card, index, total) {
+  card.className = 'queue-card is-running';
+  const badge = card.querySelector('.queue-badge');
+  if (badge) badge.textContent = `Đang tạo · ${index + 1}/${total}`;
+}
+
+function setQueueCardError(card, prompt, errorMsg, onRetry) {
+  card.className = 'queue-card is-error';
+  const badge = card.querySelector('.queue-badge');
+  if (badge) badge.textContent = 'Lỗi';
+  if (!card.querySelector('.queue-error-msg')) {
+    const msg = document.createElement('div');
+    msg.className = 'queue-error-msg';
+    msg.textContent = errorMsg;
+    card.appendChild(msg);
+
+    const retry = document.createElement('button');
+    retry.className = 'queue-retry';
+    retry.textContent = '↻ Thử lại prompt này';
+    retry.addEventListener('click', () => {
+      card.remove();
+      onRetry();
     });
-  }, 1000);
+    card.appendChild(retry);
+  }
 }
 
-function clearSkeletons() {
-  if (skeletonTimer) { clearInterval(skeletonTimer); skeletonTimer = null; }
-  document.querySelectorAll('[data-skeleton="true"]').forEach((el) => el.remove());
-  if (resultCount === 0) emptyState.classList.remove('hidden');
+// ============ TIẾN ĐỘ ============
+function updateProgress(done, total, startedAt) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  progressFill.style.width = pct + '%';
+
+  let etaText = '';
+  if (done > 0 && done < total) {
+    const elapsed = (Date.now() - startedAt) / 1000;
+    const perItem = elapsed / done;
+    const remaining = Math.round(perItem * (total - done));
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+    etaText = mins > 0 ? ` · còn ~${mins}p${secs}s` : ` · còn ~${secs}s`;
+  }
+  progressText.textContent = `Đã xong ${done}/${total}${etaText}`;
 }
 
-// ============ LIGHTBOX XEM TRƯỚC ============
-function openLightbox(src, filename, meta) {
-  lightboxImg.src = src;
-  lightboxDownload.href = src;
-  lightboxDownload.download = filename;
-
-  // Hiện kích thước thật của ảnh sau khi load xong
-  lightboxImg.onload = () => {
-    const dims = `${lightboxImg.naturalWidth} × ${lightboxImg.naturalHeight}px`;
-    const parts = [dims];
-    if (meta?.model) parts.push(meta.model);
-    if (meta?.format) parts.push(meta.format.toUpperCase());
-    lightboxInfo.textContent = parts.join(' · ');
-  };
-
-  lightbox.classList.remove('hidden');
-  lightboxClose.focus();
+function setRunningState(running) {
+  isRunning = running;
+  genBtn.disabled = running;
+  stopBtn.classList.toggle('hidden', !running);
+  batchProgress.classList.toggle('hidden', !running);
+  modeTabs.forEach((t) => (t.style.opacity = running ? '0.5' : '1'));
+  if (!running) {
+    genBtn.textContent = currentMode === 'batch' ? 'Tạo hàng loạt' : 'Tạo ảnh';
+  }
 }
 
-function closeLightbox() {
-  lightbox.classList.add('hidden');
-  lightboxImg.src = '';
-  lightboxInfo.textContent = '';
-}
-
-lightboxClose.addEventListener('click', closeLightbox);
-// Bấm ra nền ngoài ảnh cũng đóng
-lightbox.addEventListener('click', (e) => {
-  if (e.target === lightbox) closeLightbox();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !lightbox.classList.contains('hidden')) closeLightbox();
+stopBtn.addEventListener('click', () => {
+  stopRequested = true;
+  stopBtn.textContent = 'Đang dừng...';
+  stopBtn.disabled = true;
 });
 
-// ============ TẠO ẢNH ============
-genBtn.addEventListener('click', generateImages);
-
-async function generateImages() {
-  hideError();
-  const prompt = promptEl.value.trim();
-  if (!prompt) { showError('Vui lòng nhập prompt.'); return; }
-
-  const selectedSize = getSelectedSize();
-  const nImages = parseInt(countEl.value, 10) || 1;
-
+// ============ GỌI API TẠO 1 ẢNH ============
+async function requestImages(prompt) {
   const formData = new FormData();
   formData.append('model', modelEl.value);
   formData.append('prompt', prompt);
-  formData.append('size', selectedSize);
+  formData.append('size', getSelectedSize());
   formData.append('quality', qualityEl.value);
   formData.append('format', formatEl.value);
-  formData.append('n', String(nImages));
+  formData.append('n', countEl.value);
   formData.append('presetId', presetEl.value);
   if (currentModel.supportsReferenceImages) {
     refFiles.forEach((rf) => formData.append('images', rf.file));
   }
 
-  genBtn.disabled = true;
-  genBtn.innerHTML = '<span class="spinner"></span>Đang tạo ảnh...';
-  showSkeletons(nImages, selectedSize);
+  const res = await fetch('/api/generate', { method: 'POST', body: formData });
+  const data = await res.json();
 
-  try {
-    const res = await fetch('/api/generate', { method: 'POST', body: formData });
-    const data = await res.json();
-
-    clearSkeletons();
-
-    if (res.status === 401) { showLogin(); return; }
-    if (!res.ok) { showError(data.error || 'Có lỗi xảy ra, vui lòng thử lại.'); return; }
-
-    renderResults(data.images, data.meta, prompt);
-  } catch (err) {
-    clearSkeletons();
-    showError('Không kết nối được tới server: ' + err.message);
-  } finally {
-    genBtn.disabled = false;
-    genBtn.textContent = 'Tạo ảnh';
+  if (res.status === 401) {
+    showLogin();
+    throw new Error('Phiên đăng nhập đã hết hạn');
   }
+  if (!res.ok) throw new Error(data.error || 'Lỗi không xác định từ server');
+  return data;
+}
+
+// ============ CHẠY HÀNG LOẠT ============
+genBtn.addEventListener('click', onGenerateClick);
+
+async function onGenerateClick() {
+  hideError();
+  if (isRunning) return;
+
+  const prompts = currentMode === 'batch' ? parseBatchPrompts() : [promptEl.value.trim()].filter(Boolean);
+
+  if (prompts.length === 0) {
+    showError(currentMode === 'batch' ? 'Vui lòng nhập ít nhất 1 prompt.' : 'Vui lòng nhập prompt.');
+    return;
+  }
+
+  // Xác nhận chi phí khi chạy nhiều prompt
+  if (prompts.length > 1) {
+    const perImage = getUnitPrice();
+    const nPer = parseInt(countEl.value, 10) || 1;
+    const totalImages = prompts.length * nPer;
+    let msg = `Sắp tạo ${totalImages} ảnh từ ${prompts.length} prompt.`;
+    if (perImage != null) {
+      const totalVnd = perImage * totalImages * (CONFIG.usdToVndRate || 25400);
+      msg += `\nChi phí ước tính: ~${formatVnd(totalVnd)}`;
+    }
+    msg += '\n\nTiếp tục?';
+    if (!confirm(msg)) return;
+  }
+
+  stopRequested = false;
+  stopBtn.textContent = '■ Dừng lại';
+  stopBtn.disabled = false;
+  setRunningState(true);
+  emptyState.classList.add('hidden');
+
+  const total = prompts.length;
+  const startedAt = Date.now();
+  let done = 0;
+  let failed = 0;
+  updateProgress(0, total, startedAt);
+
+  // Tạo sẵn thẻ cho từng prompt để thấy toàn cảnh hàng đợi
+  const jobs = prompts.map((prompt, i) => ({
+    prompt,
+    index: i,
+    card: createQueueCard(prompt, i, total),
+  }));
+
+  // Chạy song song CONCURRENCY luồng, mỗi luồng lấy job kế tiếp
+  let nextIndex = 0;
+  async function worker() {
+    while (true) {
+      if (stopRequested) return;
+      const myIndex = nextIndex++;
+      if (myIndex >= jobs.length) return;
+      const job = jobs[myIndex];
+
+      setQueueCardRunning(job.card, job.index, total);
+      try {
+        const data = await requestImages(job.prompt);
+        job.card.remove();
+        await renderResults(data.images, data.meta, job.prompt);
+      } catch (err) {
+        failed++;
+        setQueueCardError(job.card, job.prompt, err.message, () => retrySingle(job.prompt));
+      }
+      done++;
+      updateProgress(done, total, startedAt);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, worker));
+
+  // Dọn các thẻ còn đang chờ nếu người dùng bấm Dừng
+  if (stopRequested) {
+    jobs.forEach((j) => { if (j.card.classList.contains('is-waiting')) j.card.remove(); });
+  }
+
+  setRunningState(false);
+
+  const succeeded = total - failed;
+  if (stopRequested) {
+    showToast(`Đã dừng — tạo được ${succeeded} ảnh`);
+  } else if (failed > 0) {
+    showToast(`Xong: ${succeeded} thành công, ${failed} lỗi`);
+  } else if (total > 1) {
+    showToast(`Đã tạo xong ${succeeded} prompt`);
+  }
+  refreshResultsMeta();
+}
+
+/** Thử lại 1 prompt bị lỗi. */
+async function retrySingle(prompt) {
+  if (isRunning) { showToast('Đang chạy loạt khác, hãy đợi xong'); return; }
+  setRunningState(true);
+  const card = createQueueCard(prompt, 0, 1);
+  setQueueCardRunning(card, 0, 1);
+  updateProgress(0, 1, Date.now());
+  try {
+    const data = await requestImages(prompt);
+    card.remove();
+    await renderResults(data.images, data.meta, prompt);
+    showToast('Thử lại thành công');
+  } catch (err) {
+    setQueueCardError(card, prompt, err.message, () => retrySingle(prompt));
+    showToast('Vẫn lỗi: ' + err.message);
+  }
+  updateProgress(1, 1, Date.now());
+  setRunningState(false);
+  refreshResultsMeta();
 }
 
 // ============ HIỂN THỊ 1 THẺ ẢNH ============
@@ -474,6 +639,35 @@ async function refreshResultsMeta() {
     storageInfo.textContent = '';
   }
 }
+
+downloadAllBtn.addEventListener('click', async () => {
+  if (resultCount === 0) { showToast('Chưa có ảnh nào để tải'); return; }
+  let stored = [];
+  try {
+    stored = await getAllImages();
+  } catch (e) {
+    showToast('Không đọc được ảnh đã lưu');
+    return;
+  }
+  if (stored.length === 0) return;
+  if (!confirm(`Tải ${stored.length} ảnh về máy? Trình duyệt có thể hỏi xin phép tải nhiều file.`)) return;
+
+  showToast(`Đang tải ${stored.length} ảnh...`);
+  // Tải lần lượt, giãn cách nhẹ để trình duyệt không chặn
+  for (let i = 0; i < stored.length; i++) {
+    const item = stored[i];
+    const url = URL.createObjectURL(item.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gpt-image-${String(i + 1).padStart(3, '0')}.${item.format || 'png'}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    await new Promise((r) => setTimeout(r, 350));
+    URL.revokeObjectURL(url);
+  }
+  showToast(`Đã tải xong ${stored.length} ảnh`);
+});
 
 clearAllBtn.addEventListener('click', async () => {
   if (resultCount === 0) return;

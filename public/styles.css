@@ -448,3 +448,143 @@ button.primary:disabled { background: #3a3527; color: var(--muted-dim); cursor: 
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ---------- Chuyển chế độ đơn / hàng loạt ---------- */
+.mode-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px;
+}
+.mode-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+.mode-tab:hover { color: var(--text); }
+.mode-tab.active { background: var(--accent); color: #1c1200; font-weight: 600; }
+
+#batchPrompt { min-height: 170px; font-size: 13px; line-height: 1.6; }
+.batch-summary {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+.batch-summary strong { color: var(--accent); }
+
+/* ---------- Nút dừng + tiến độ ---------- */
+.stop-btn {
+  width: 100%;
+  margin-top: 10px;
+  background: none;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 10px;
+  padding: 11px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.stop-btn:hover { background: rgba(226, 105, 90, 0.1); }
+
+.batch-progress { margin-top: 14px; }
+.progress-bar {
+  height: 6px;
+  background: var(--panel-raised);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.progress-text {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 7px;
+  text-align: center;
+}
+
+/* ---------- Thẻ hàng đợi (đang chờ / đang chạy / lỗi) ---------- */
+.queue-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.queue-card.is-error { border-color: var(--danger); }
+.queue-visual {
+  width: 100%;
+  aspect-ratio: var(--sk-ratio, 1);
+  background: var(--panel-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  text-align: center;
+}
+.queue-card.is-running .queue-visual {
+  background: linear-gradient(100deg, var(--panel-raised) 30%, #2f2a22 50%, var(--panel-raised) 70%);
+  background-size: 300% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.queue-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--border);
+  color: var(--muted);
+}
+.queue-card.is-running .queue-badge { background: var(--accent-soft); color: var(--accent); }
+.queue-card.is-error .queue-badge { background: rgba(226,105,90,0.15); color: var(--danger); }
+.queue-prompt {
+  font-size: 11.5px;
+  color: var(--muted-dim);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.queue-error-msg {
+  font-size: 11px;
+  color: var(--danger);
+  padding: 9px 11px;
+  border-top: 1px solid var(--border-soft);
+  line-height: 1.45;
+}
+.queue-retry {
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  color: var(--accent);
+  padding: 9px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+}
+.queue-retry:hover { background: var(--accent-soft); }

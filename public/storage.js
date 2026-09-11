@@ -11,7 +11,7 @@
 const DB_NAME = 'gpt-image-studio';
 const DB_VERSION = 1;
 const STORE = 'images';
-const MAX_STORED = 60; // giữ tối đa 60 ảnh gần nhất, cũ hơn tự xoá
+const MAX_STORED = 150; // giữ tối đa 150 ảnh gần nhất, cũ hơn tự xoá
 
 let dbPromise = null;
 
