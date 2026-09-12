@@ -7,6 +7,7 @@ import {
   getUsageBytes,
   MAX_STORED,
 } from './storage.js';
+import { initChat } from './chat.js';
 
 // ============ STATE ============
 let CONFIG = null;
@@ -29,7 +30,9 @@ const logoutBtn = document.getElementById('logoutBtn');
 const modelEl = document.getElementById('model');
 const modelHint = document.getElementById('modelHint');
 const promptEl = document.getElementById('prompt');
-const batchPromptEl = document.getElementById('batchPrompt');
+const promptList = document.getElementById('promptList');
+const addPromptBtn = document.getElementById('addPromptBtn');
+const clearPromptsBtn = document.getElementById('clearPromptsBtn');
 const singlePromptField = document.getElementById('singlePromptField');
 const batchPromptField = document.getElementById('batchPromptField');
 const batchSummary = document.getElementById('batchSummary');
@@ -124,6 +127,31 @@ async function init() {
 
   [qualityEl, countEl].forEach((el) => el.addEventListener('change', updateCostEstimate));
 
+  // Khởi tạo chatbot, nối nút "Dùng prompt này" vào ô tạo ảnh
+  initChat({
+    onToast: showToast,
+    onUsePrompt: (promptText) => {
+      if (currentMode === 'batch') {
+        // Chế độ hàng loạt: đặt vào khung trống đầu tiên, không có thì thêm khung mới
+        const emptyTa = Array.from(promptList.querySelectorAll('textarea'))
+          .find((ta) => ta.value.trim().length === 0);
+        if (emptyTa) {
+          emptyTa.value = promptText;
+          emptyTa.dispatchEvent(new Event('input'));
+          emptyTa.focus();
+        } else {
+          const item = addPromptItem(promptText, true);
+          item.querySelector('textarea').dispatchEvent(new Event('input'));
+        }
+        showToast('Đã thêm prompt vào danh sách');
+      } else {
+        promptEl.value = promptText;
+        promptEl.focus();
+        showToast('Đã đưa prompt vào ô tạo ảnh');
+      }
+    },
+  });
+
   if (CONFIG.requiresPassword) {
     const statusRes = await fetch('/api/session-status');
     const status = await statusRes.json();
@@ -196,11 +224,14 @@ function getSelectedSize() {
 function showLogin() {
   loginScreen.classList.remove('hidden');
   appScreen.classList.add('hidden');
+  document.getElementById('chatFab')?.classList.add('hidden');
+  document.getElementById('chatPanel')?.classList.add('hidden');
   passwordInput.focus();
 }
 function showApp() {
   loginScreen.classList.add('hidden');
   appScreen.classList.remove('hidden');
+  document.getElementById('chatFab')?.classList.remove('hidden');
   if (CONFIG?.requiresPassword) logoutBtn.classList.remove('hidden');
 }
 
@@ -303,18 +334,85 @@ modeTabs.forEach((tab) => {
     modeTabs.forEach((t) => t.classList.toggle('active', t === tab));
     singlePromptField.classList.toggle('hidden', currentMode !== 'single');
     batchPromptField.classList.toggle('hidden', currentMode !== 'batch');
+
+    // Lần đầu vào chế độ hàng loạt: tạo sẵn 1 khung, và mang prompt đang gõ sang nếu có
+    if (currentMode === 'batch' && promptList.children.length === 0) {
+      addPromptItem(promptEl.value.trim());
+    }
+
     updateBatchSummary();
     updateCostEstimate();
     genBtn.textContent = currentMode === 'batch' ? 'Tạo hàng loạt' : 'Tạo ảnh';
   });
 });
 
-/** Tách textarea thành danh sách prompt, bỏ dòng trống và trùng lặp liền kề. */
+// ---- Quản lý danh sách khung prompt ----
+// Mỗi prompt là 1 khung riêng, tránh trường hợp prompt dài nhiều dòng
+// bị cắt nhầm thành nhiều prompt.
+
+/** Thêm 1 khung prompt mới. */
+function addPromptItem(value = '', focus = false) {
+  const item = document.createElement('div');
+  item.className = 'prompt-item';
+  item.innerHTML = `
+    <div class="prompt-item-head">
+      <span class="prompt-item-num"></span>
+      <div class="prompt-item-tools">
+        <button class="prompt-icon-btn" data-act="dup" title="Nhân bản">⧉</button>
+        <button class="prompt-icon-btn danger" data-act="del" title="Xoá khung này">✕</button>
+      </div>
+    </div>
+    <textarea placeholder="Dán prompt vào đây (có thể dài nhiều dòng)..."></textarea>
+    <div class="prompt-item-count"></div>
+  `;
+
+  const ta = item.querySelector('textarea');
+  ta.value = value;
+
+  const updateCount = () => {
+    const len = ta.value.trim().length;
+    item.querySelector('.prompt-item-count').textContent = len > 0 ? `${len} ký tự` : '';
+  };
+
+  ta.addEventListener('input', () => {
+    updateCount();
+    updateBatchSummary();
+  });
+
+  item.querySelector('[data-act="del"]').addEventListener('click', () => {
+    if (promptList.children.length === 1) {
+      ta.value = '';
+      updateCount();
+      updateBatchSummary();
+      return;
+    }
+    item.remove();
+    renumberPrompts();
+    updateBatchSummary();
+  });
+
+  item.querySelector('[data-act="dup"]').addEventListener('click', () => {
+    addPromptItem(ta.value, true);
+  });
+
+  promptList.appendChild(item);
+  updateCount();
+  renumberPrompts();
+  if (focus) ta.focus();
+  return item;
+}
+
+function renumberPrompts() {
+  Array.from(promptList.children).forEach((item, i) => {
+    item.querySelector('.prompt-item-num').textContent = `Prompt ${i + 1}`;
+  });
+}
+
+/** Lấy danh sách prompt đã nhập (bỏ khung trống). */
 function parseBatchPrompts() {
-  return batchPromptEl.value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  return Array.from(promptList.querySelectorAll('textarea'))
+    .map((ta) => ta.value.trim())
+    .filter((v) => v.length > 0);
 }
 
 function updateBatchSummary() {
@@ -336,7 +434,15 @@ function updateBatchSummary() {
     `<strong>${prompts.length}</strong> prompt × ${nPerPrompt} ảnh = <strong>${totalImages}</strong> ảnh · ước tính <strong>~${formatVnd(totalVnd)}</strong>`;
 }
 
-batchPromptEl.addEventListener('input', updateBatchSummary);
+addPromptBtn.addEventListener('click', () => addPromptItem('', true));
+
+clearPromptsBtn.addEventListener('click', () => {
+  if (parseBatchPrompts().length === 0) return;
+  if (!confirm('Xoá hết các prompt đã nhập?')) return;
+  promptList.innerHTML = '';
+  addPromptItem();
+  updateBatchSummary();
+});
 
 function getUnitPrice() {
   if (!CONFIG || !currentModel) return null;

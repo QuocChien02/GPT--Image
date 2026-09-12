@@ -51,8 +51,12 @@
       </div>
 
       <div class="field hidden" id="batchPromptField">
-        <label class="panel-label" for="batchPrompt">Danh sách prompt — mỗi dòng 1 prompt</label>
-        <textarea id="batchPrompt" placeholder="Cô gái mặc áo dài trắng bên hồ Gươm&#10;Người mẫu nam áo khoác da, phố đêm Hà Nội&#10;Bé gái cầm bóng bay, công viên mùa thu&#10;..."></textarea>
+        <label class="panel-label">Danh sách prompt</label>
+        <div id="promptList"></div>
+        <div class="batch-actions">
+          <button class="add-prompt-btn" id="addPromptBtn">+ Thêm prompt</button>
+          <button class="ghost-btn" id="clearPromptsBtn">Xoá hết</button>
+        </div>
         <div class="batch-summary" id="batchSummary">Chưa nhập prompt nào</div>
       </div>
 
@@ -125,6 +129,32 @@
         <p>Ảnh bạn tạo sẽ hiện ở đây và được lưu lại trong trình duyệt.</p>
       </div>
     </main>
+  </div>
+</div>
+
+<!-- Nút nổi mở chat -->
+<button class="chat-fab hidden" id="chatFab" title="Trợ lý AI">
+  <span id="chatFabIcon">✦</span>
+</button>
+
+<!-- Panel chat -->
+<div class="chat-panel hidden" id="chatPanel">
+  <div class="chat-header">
+    <div>
+      <div class="chat-title">Trợ lý AI</div>
+      <div class="chat-subtitle">Viết prompt · hỏi đáp</div>
+    </div>
+    <div class="chat-header-tools">
+      <button class="prompt-icon-btn" id="chatClearBtn" title="Xoá hội thoại">🗑</button>
+      <button class="prompt-icon-btn" id="chatCloseBtn" title="Đóng">✕</button>
+    </div>
+  </div>
+
+  <div class="chat-messages" id="chatMessages"></div>
+
+  <div class="chat-input-area">
+    <textarea id="chatInput" placeholder="Mô tả ý tưởng ảnh, hoặc hỏi bất cứ điều gì... (Enter để gửi)"></textarea>
+    <button class="chat-send" id="chatSendBtn">Gửi</button>
   </div>
 </div>
 

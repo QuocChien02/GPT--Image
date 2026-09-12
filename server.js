@@ -20,6 +20,11 @@ import {
   PRICE_PER_IMAGE_USD,
   USD_TO_VND_RATE,
   STYLE_PRESETS,
+  CHAT_MODEL,
+  CHAT_MAX_TOKENS,
+  CHAT_MAX_HISTORY,
+  CHAT_MAX_MESSAGE_LENGTH,
+  CHAT_SYSTEM_PROMPT,
 } from './config.js';
 
 dotenv.config();
@@ -316,6 +321,80 @@ app.post(
     }
   }
 );
+
+// ===================== API CHAT (trợ lý prompt + hỏi đáp) =====================
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20, // chat rẻ hơn ảnh nhiều nhưng vẫn giới hạn để tránh spam
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Bạn đang chat quá nhanh, vui lòng chờ một chút' },
+});
+
+app.post('/api/chat', requireAuth, chatLimiter, async (req, res) => {
+  try {
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'Server chưa cấu hình OPENAI_API_KEY' });
+    }
+
+    const rawMessages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    if (rawMessages.length === 0) {
+      return res.status(400).json({ error: 'Thiếu nội dung tin nhắn' });
+    }
+
+    // Chỉ nhận role user/assistant, cắt độ dài, giới hạn số tin nhắn gần nhất
+    const history = rawMessages
+      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .slice(-CHAT_MAX_HISTORY)
+      .map((m) => ({
+        role: m.role,
+        content: sanitizePrompt(m.content).slice(0, CHAT_MAX_MESSAGE_LENGTH),
+      }))
+      .filter((m) => m.content.length > 0);
+
+    if (history.length === 0) {
+      return res.status(400).json({ error: 'Nội dung tin nhắn không hợp lệ' });
+    }
+
+    const apiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        max_tokens: CHAT_MAX_TOKENS,
+        messages: [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...history],
+      }),
+    });
+
+    const data = await apiResponse.json();
+
+    if (!apiResponse.ok) {
+      console.error('Lỗi OpenAI Chat API:', data);
+      return res.status(apiResponse.status).json({
+        error: data?.error?.message || 'OpenAI trả về lỗi khi chat',
+      });
+    }
+
+    const reply = data?.choices?.[0]?.message?.content;
+    if (!reply) {
+      return res.status(502).json({ error: 'Không nhận được phản hồi từ OpenAI' });
+    }
+
+    res.json({
+      reply,
+      usage: {
+        promptTokens: data?.usage?.prompt_tokens ?? null,
+        completionTokens: data?.usage?.completion_tokens ?? null,
+      },
+    });
+  } catch (err) {
+    console.error('Lỗi chat:', err);
+    res.status(500).json({ error: 'Lỗi server khi xử lý chat' });
+  }
+});
 
 app.use((err, req, res, next) => {
   console.error('Lỗi chưa xử lý:', err);
