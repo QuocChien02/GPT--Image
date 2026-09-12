@@ -438,11 +438,27 @@ button.primary:disabled { background: #3a3527; color: var(--muted-dim); cursor: 
 .ghost-btn:hover { border-color: var(--danger); color: var(--danger); }
 
 .card-meta {
-  padding: 8px 10px;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--border-soft);
+}
+.card-time {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.card-dim {
+  color: var(--muted-dim);
+  font-size: 10.5px;
+}
+.card-prompt {
   font-size: 11px;
   color: var(--muted-dim);
-  border-top: 1px solid var(--border-soft);
   line-height: 1.45;
+  margin-top: 5px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

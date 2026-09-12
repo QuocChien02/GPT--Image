@@ -671,9 +671,8 @@ function buildCard({ id, src, filename, meta, prompt, createdAt }) {
   card.className = 'card';
   card.dataset.imageId = id ?? '';
 
-  const timeText = createdAt
-    ? new Date(createdAt).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-    : '';
+  const timeText = createdAt ? formatTime(createdAt) : '';
+  const sizeText = meta?.size && meta.size !== 'auto' ? meta.size.replace('x', '×') : '';
 
   card.innerHTML = `
     <img src="${src}" alt="Ảnh kết quả" title="Bấm để xem lớn" />
@@ -682,19 +681,51 @@ function buildCard({ id, src, filename, meta, prompt, createdAt }) {
       <button data-action="reuse">↺ Dùng làm ref</button>
       <button data-action="delete" title="Xoá ảnh này">🗑</button>
     </div>
-    ${prompt ? `<div class="card-meta">${timeText ? timeText + ' · ' : ''}${escapeHtml(prompt)}</div>` : ''}
+    <div class="card-meta">
+      <div class="card-time">
+        <span>${timeText}</span>
+        ${sizeText ? `<span class="card-dim">${sizeText}</span>` : ''}
+      </div>
+      ${prompt ? `<div class="card-prompt" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</div>` : ''}
+    </div>
   `;
 
   card.querySelector('img').addEventListener('click', () => openLightbox(src, filename, meta));
   card.querySelector('[data-action="reuse"]').addEventListener('click', () => reuseAsReference(src));
   card.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-    if (id != null) await deleteImage(id);
+    if (!confirm('Xoá ảnh này?')) return;
+    try {
+      if (id != null) await deleteImage(id);
+    } catch (e) {
+      console.error('Không xoá được ảnh trong bộ nhớ:', e);
+      showToast('Đã ẩn khỏi màn hình nhưng chưa xoá được trong bộ nhớ');
+    }
     card.remove();
     resultCount = Math.max(0, resultCount - 1);
     refreshResultsMeta();
   });
 
   return card;
+}
+
+/** Hiện thời gian dễ đọc: vừa xong / 5 phút trước / hôm nay HH:mm / dd/MM HH:mm */
+function formatTime(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  const diffSec = Math.floor((Date.now() - ts) / 1000);
+  if (diffSec < 60) return 'Vừa xong';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
+
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return `Hôm nay ${hhmm}`;
+
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Hôm qua ${hhmm}`;
+
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${hhmm}`;
 }
 
 function escapeHtml(str) {
@@ -724,7 +755,7 @@ async function loadStoredImages() {
         id: item.id,
         src,
         filename,
-        meta: { model: item.model, format: item.format },
+        meta: { model: item.model, format: item.format, size: item.size },
         prompt: item.prompt,
         createdAt: item.createdAt,
       })
@@ -776,13 +807,36 @@ downloadAllBtn.addEventListener('click', async () => {
 });
 
 clearAllBtn.addEventListener('click', async () => {
-  if (resultCount === 0) return;
-  if (!confirm('Xoá toàn bộ ảnh đã lưu trong trình duyệt? Hành động này không hoàn tác được.')) return;
-  await clearAllImages();
-  gallery.innerHTML = '';
+  // Đếm thực tế từ bộ nhớ thay vì tin vào biến đếm (tránh lệch số)
+  let stored = [];
+  try {
+    stored = await getAllImages();
+  } catch (e) {
+    console.error('Không đọc được danh sách ảnh:', e);
+  }
+
+  const domCount = gallery.querySelectorAll('.card').length;
+  if (stored.length === 0 && domCount === 0) {
+    showToast('Chưa có ảnh nào để xoá');
+    return;
+  }
+
+  const total = Math.max(stored.length, domCount);
+  if (!confirm(`Xoá ${total} ảnh đã lưu trong trình duyệt? Hành động này không hoàn tác được.`)) return;
+
+  // Xoá khỏi màn hình trước để phản hồi ngay, kể cả khi xoá bộ nhớ gặp lỗi
+  gallery.querySelectorAll('.card').forEach((c) => c.remove());
   resultCount = 0;
+
+  try {
+    await clearAllImages();
+    showToast(`Đã xoá ${total} ảnh`);
+  } catch (e) {
+    console.error('Lỗi xoá ảnh trong bộ nhớ:', e);
+    showError('Đã xoá khỏi màn hình nhưng không xoá được trong bộ nhớ trình duyệt. Thử tải lại trang rồi xoá lại.');
+  }
+
   refreshResultsMeta();
-  showToast('Đã xoá toàn bộ ảnh đã lưu');
 });
 
 // ============ HIỂN THỊ KẾT QUẢ MỚI ============
