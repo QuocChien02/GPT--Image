@@ -591,18 +591,30 @@ button.primary:disabled { background: #3a3527; color: var(--muted-dim); cursor: 
   border-top: 1px solid var(--border-soft);
   line-height: 1.45;
 }
+.queue-error-actions {
+  display: flex;
+  border-top: 1px solid var(--border-soft);
+}
 .queue-retry {
+  flex: 1;
   background: none;
   border: none;
-  border-top: 1px solid var(--border-soft);
   color: var(--accent);
   padding: 9px;
   font-size: 12px;
   cursor: pointer;
   font-family: inherit;
-  width: 100%;
 }
 .queue-retry:hover { background: var(--accent-soft); }
+.queue-retry.danger { color: var(--muted-dim); border-left: 1px solid var(--border-soft); }
+.queue-retry.danger:hover { background: rgba(226,105,90,0.1); color: var(--danger); }
+
+.queue-timer {
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 
 /* ---------- Danh sách khung prompt riêng ---------- */
 #promptList { display: flex; flex-direction: column; gap: 10px; }
@@ -895,3 +907,22 @@ button.primary:disabled { background: #3a3527; color: var(--muted-dim); cursor: 
   }
   .chat-fab { right: 16px; bottom: 16px; }
 }
+
+/* ---------- Ảnh tham chiếu riêng trong từng khung prompt ---------- */
+.prompt-item-refs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 12px 8px;
+}
+.ref-thumb.small {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+}
+.ref-thumb.small button {
+  width: 15px;
+  height: 15px;
+  font-size: 9px;
+}
+.prompt-item-count { min-height: 14px; }

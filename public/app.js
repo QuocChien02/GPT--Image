@@ -43,6 +43,8 @@ const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
 const downloadAllBtn = document.getElementById('downloadAllBtn');
 const refField = document.getElementById('refField');
+const refLabel = document.getElementById('refLabel');
+const refHint = document.getElementById('refHint');
 const refDropzone = document.getElementById('refDropzone');
 const refInput = document.getElementById('refInput');
 const refThumbs = document.getElementById('refThumbs');
@@ -193,6 +195,7 @@ function onModelChange() {
   if (!currentModel.supportsOutputFormat) notes.push('chỉ xuất PNG');
   modelHint.textContent = notes.length ? `Model này ${notes.join(', ')}.` : '';
 
+  updateRefLabel();
   sizeHint.textContent = 'Ảnh tạo ra đúng tỉ lệ đã chọn. Ghi tỉ lệ trong prompt không có tác dụng.';
 
   updateCostEstimate();
@@ -326,6 +329,45 @@ function updateCostEstimate() {
   updateBatchSummary(); // cập nhật luôn tổng chi phí của chế độ hàng loạt
 }
 
+// ============ LIGHTBOX XEM TRƯỚC ẢNH ============
+function openLightbox(src, filename, meta) {
+  lightboxImg.src = src;
+  lightboxDownload.href = src;
+  lightboxDownload.download = filename;
+  lightboxInfo.textContent = 'Đang tải...';
+
+  // Hiện kích thước thật sau khi ảnh load xong
+  lightboxImg.onload = () => {
+    const parts = [`${lightboxImg.naturalWidth} × ${lightboxImg.naturalHeight}px`];
+    if (meta?.model) parts.push(meta.model);
+    if (meta?.format) parts.push(meta.format.toUpperCase());
+    lightboxInfo.textContent = parts.join(' · ');
+  };
+  lightboxImg.onerror = () => {
+    lightboxInfo.textContent = 'Không tải được ảnh';
+  };
+
+  lightbox.classList.remove('hidden');
+  lightboxClose.focus();
+}
+
+function closeLightbox() {
+  lightbox.classList.add('hidden');
+  lightboxImg.src = '';
+  lightboxInfo.textContent = '';
+}
+
+lightboxClose.addEventListener('click', closeLightbox);
+
+// Bấm ra vùng nền ngoài ảnh cũng đóng
+lightbox.addEventListener('click', (e) => {
+  if (e.target === lightbox) closeLightbox();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !lightbox.classList.contains('hidden')) closeLightbox();
+});
+
 // ============ CHUYỂN CHẾ ĐỘ ĐƠN / HÀNG LOẠT ============
 modeTabs.forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -340,6 +382,7 @@ modeTabs.forEach((tab) => {
       addPromptItem(promptEl.value.trim());
     }
 
+    updateRefLabel();
     updateBatchSummary();
     updateCostEstimate();
     genBtn.textContent = currentMode === 'batch' ? 'Tạo hàng loạt' : 'Tạo ảnh';
@@ -358,30 +401,79 @@ function addPromptItem(value = '', focus = false) {
     <div class="prompt-item-head">
       <span class="prompt-item-num"></span>
       <div class="prompt-item-tools">
+        <button class="prompt-icon-btn" data-act="addimg" title="Thêm ảnh tham chiếu riêng">🖼</button>
         <button class="prompt-icon-btn" data-act="dup" title="Nhân bản">⧉</button>
         <button class="prompt-icon-btn danger" data-act="del" title="Xoá khung này">✕</button>
       </div>
     </div>
     <textarea placeholder="Dán prompt vào đây (có thể dài nhiều dòng)..."></textarea>
+    <div class="prompt-item-refs hidden"></div>
+    <input type="file" class="prompt-item-file hidden" accept="image/png,image/jpeg,image/webp" multiple />
     <div class="prompt-item-count"></div>
   `;
 
+  // Danh sách ảnh tham chiếu riêng của khung này
+  item._refFiles = [];
+
   const ta = item.querySelector('textarea');
+  const fileInput = item.querySelector('.prompt-item-file');
+  const refsBox = item.querySelector('.prompt-item-refs');
   ta.value = value;
 
   const updateCount = () => {
     const len = ta.value.trim().length;
-    item.querySelector('.prompt-item-count').textContent = len > 0 ? `${len} ký tự` : '';
+    const nRef = item._refFiles.length;
+    const bits = [];
+    if (len > 0) bits.push(`${len} ký tự`);
+    if (nRef > 0) bits.push(`${nRef} ảnh riêng`);
+    item.querySelector('.prompt-item-count').textContent = bits.join(' · ');
   };
 
-  ta.addEventListener('input', () => {
+  const renderRefs = () => {
+    refsBox.innerHTML = '';
+    refsBox.classList.toggle('hidden', item._refFiles.length === 0);
+    item._refFiles.forEach((rf, i) => {
+      const th = document.createElement('div');
+      th.className = 'ref-thumb small';
+      th.innerHTML = `<img src="${rf.previewUrl}" /><button title="Xoá ảnh">✕</button>`;
+      th.querySelector('button').addEventListener('click', () => {
+        URL.revokeObjectURL(rf.previewUrl);
+        item._refFiles.splice(i, 1);
+        renderRefs();
+        updateCount();
+      });
+      refsBox.appendChild(th);
+    });
+  };
+
+  ta.addEventListener('input', () => { updateCount(); updateBatchSummary(); });
+
+  item.querySelector('[data-act="addimg"]').addEventListener('click', () => {
+    if (!currentModel?.supportsReferenceImages) {
+      showToast('Model đang chọn không dùng được ảnh tham chiếu');
+      return;
+    }
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', () => {
+    const max = CONFIG?.maxReferenceImages || 4;
+    Array.from(fileInput.files).forEach((file) => {
+      if (item._refFiles.length >= max) return;
+      if (!file.type.startsWith('image/')) return;
+      item._refFiles.push({ file, previewUrl: URL.createObjectURL(file) });
+    });
+    fileInput.value = '';
+    renderRefs();
     updateCount();
-    updateBatchSummary();
   });
 
   item.querySelector('[data-act="del"]').addEventListener('click', () => {
+    item._refFiles.forEach((rf) => URL.revokeObjectURL(rf.previewUrl));
     if (promptList.children.length === 1) {
       ta.value = '';
+      item._refFiles = [];
+      renderRefs();
       updateCount();
       updateBatchSummary();
       return;
@@ -408,11 +500,30 @@ function renumberPrompts() {
   });
 }
 
-/** Lấy danh sách prompt đã nhập (bỏ khung trống). */
+/** Đổi nhãn phần ảnh tham chiếu theo chế độ đang dùng. */
+function updateRefLabel() {
+  if (currentMode === 'batch') {
+    refLabel.textContent = 'Ảnh tham chiếu CHUNG (tuỳ chọn)';
+    refHint.textContent = 'Áp dụng cho mọi prompt. Khung nào có ảnh riêng (nút 🖼) thì dùng ảnh riêng thay cho ảnh chung.';
+  } else {
+    refLabel.textContent = 'Ảnh tham chiếu (tối đa 4, tuỳ chọn)';
+    refHint.textContent = 'Nếu có ảnh tham chiếu, hệ thống sẽ tạo ảnh dựa trên (các) ảnh này';
+  }
+}
+
+/** Lấy danh sách job từ các khung (bỏ khung trống), mỗi job kèm ảnh riêng nếu có. */
+function parseBatchJobs() {
+  return Array.from(promptList.children)
+    .map((item) => ({
+      prompt: item.querySelector('textarea').value.trim(),
+      refFiles: item._refFiles || [],
+    }))
+    .filter((j) => j.prompt.length > 0);
+}
+
+/** Chỉ lấy danh sách chuỗi prompt (dùng cho phần đếm/ước tính chi phí). */
 function parseBatchPrompts() {
-  return Array.from(promptList.querySelectorAll('textarea'))
-    .map((ta) => ta.value.trim())
-    .filter((v) => v.length > 0);
+  return parseBatchJobs().map((j) => j.prompt);
 }
 
 function updateBatchSummary() {
@@ -471,26 +582,65 @@ function setQueueCardRunning(card, index, total) {
   card.className = 'queue-card is-running';
   const badge = card.querySelector('.queue-badge');
   if (badge) badge.textContent = `Đang tạo · ${index + 1}/${total}`;
+
+  // Đồng hồ đếm giây để biết đã chờ bao lâu
+  let timerEl = card.querySelector('.queue-timer');
+  if (!timerEl) {
+    timerEl = document.createElement('span');
+    timerEl.className = 'queue-timer';
+    card.querySelector('.queue-visual').appendChild(timerEl);
+  }
+  const startedAt = Date.now();
+  timerEl.textContent = '0s';
+  const interval = setInterval(() => {
+    if (!card.isConnected || !card.classList.contains('is-running')) {
+      clearInterval(interval);
+      return;
+    }
+    timerEl.textContent = `${Math.floor((Date.now() - startedAt) / 1000)}s`;
+  }, 1000);
+  card._timerInterval = interval;
+}
+
+function stopQueueCardTimer(card) {
+  if (card._timerInterval) {
+    clearInterval(card._timerInterval);
+    card._timerInterval = null;
+  }
 }
 
 function setQueueCardError(card, prompt, errorMsg, onRetry) {
+  stopQueueCardTimer(card);
   card.className = 'queue-card is-error';
   const badge = card.querySelector('.queue-badge');
   if (badge) badge.textContent = 'Lỗi';
+  card.querySelector('.queue-timer')?.remove();
+
   if (!card.querySelector('.queue-error-msg')) {
     const msg = document.createElement('div');
     msg.className = 'queue-error-msg';
     msg.textContent = errorMsg;
     card.appendChild(msg);
 
+    const actions = document.createElement('div');
+    actions.className = 'queue-error-actions';
+
     const retry = document.createElement('button');
     retry.className = 'queue-retry';
-    retry.textContent = '↻ Thử lại prompt này';
+    retry.textContent = '↻ Thử lại';
     retry.addEventListener('click', () => {
       card.remove();
       onRetry();
     });
-    card.appendChild(retry);
+
+    const dismiss = document.createElement('button');
+    dismiss.className = 'queue-retry danger';
+    dismiss.textContent = '✕ Bỏ qua';
+    dismiss.addEventListener('click', () => card.remove());
+
+    actions.appendChild(retry);
+    actions.appendChild(dismiss);
+    card.appendChild(actions);
   }
 }
 
@@ -529,7 +679,7 @@ stopBtn.addEventListener('click', () => {
 });
 
 // ============ GỌI API TẠO 1 ẢNH ============
-async function requestImages(prompt) {
+async function requestImages(prompt, itemRefFiles = []) {
   const formData = new FormData();
   formData.append('model', modelEl.value);
   formData.append('prompt', prompt);
@@ -538,8 +688,12 @@ async function requestImages(prompt) {
   formData.append('format', formatEl.value);
   formData.append('n', countEl.value);
   formData.append('presetId', presetEl.value);
+
   if (currentModel.supportsReferenceImages) {
-    refFiles.forEach((rf) => formData.append('images', rf.file));
+    // Ảnh riêng của khung được ưu tiên; không có thì dùng ảnh chung
+    const useFiles = itemRefFiles.length > 0 ? itemRefFiles : refFiles;
+    const max = CONFIG?.maxReferenceImages || 4;
+    useFiles.slice(0, max).forEach((rf) => formData.append('images', rf.file));
   }
 
   const res = await fetch('/api/generate', { method: 'POST', body: formData });
@@ -560,12 +714,16 @@ async function onGenerateClick() {
   hideError();
   if (isRunning) return;
 
-  const prompts = currentMode === 'batch' ? parseBatchPrompts() : [promptEl.value.trim()].filter(Boolean);
+  // Mỗi job gồm prompt và ảnh tham chiếu riêng (nếu khung đó có)
+  const jobInputs = currentMode === 'batch'
+    ? parseBatchJobs()
+    : [{ prompt: promptEl.value.trim(), refFiles: [] }].filter((j) => j.prompt.length > 0);
 
-  if (prompts.length === 0) {
+  if (jobInputs.length === 0) {
     showError(currentMode === 'batch' ? 'Vui lòng nhập ít nhất 1 prompt.' : 'Vui lòng nhập prompt.');
     return;
   }
+  const prompts = jobInputs.map((j) => j.prompt);
 
   // Xác nhận chi phí khi chạy nhiều prompt
   if (prompts.length > 1) {
@@ -594,10 +752,11 @@ async function onGenerateClick() {
   updateProgress(0, total, startedAt);
 
   // Tạo sẵn thẻ cho từng prompt để thấy toàn cảnh hàng đợi
-  const jobs = prompts.map((prompt, i) => ({
-    prompt,
+  const jobs = jobInputs.map((input, i) => ({
+    prompt: input.prompt,
+    refFiles: input.refFiles,
     index: i,
-    card: createQueueCard(prompt, i, total),
+    card: createQueueCard(input.prompt, i, total),
   }));
 
   // Chạy song song CONCURRENCY luồng, mỗi luồng lấy job kế tiếp
@@ -611,12 +770,13 @@ async function onGenerateClick() {
 
       setQueueCardRunning(job.card, job.index, total);
       try {
-        const data = await requestImages(job.prompt);
+        const data = await requestImages(job.prompt, job.refFiles);
+        stopQueueCardTimer(job.card);
         job.card.remove();
         await renderResults(data.images, data.meta, job.prompt);
       } catch (err) {
         failed++;
-        setQueueCardError(job.card, job.prompt, err.message, () => retrySingle(job.prompt));
+        setQueueCardError(job.card, job.prompt, err.message, () => retrySingle(job.prompt, job.refFiles));
       }
       done++;
       updateProgress(done, total, startedAt);
@@ -627,7 +787,9 @@ async function onGenerateClick() {
 
   // Dọn các thẻ còn đang chờ nếu người dùng bấm Dừng
   if (stopRequested) {
-    jobs.forEach((j) => { if (j.card.classList.contains('is-waiting')) j.card.remove(); });
+    jobs.forEach((j) => {
+      if (j.card.classList.contains('is-waiting')) { stopQueueCardTimer(j.card); j.card.remove(); }
+    });
   }
 
   setRunningState(false);
@@ -644,19 +806,20 @@ async function onGenerateClick() {
 }
 
 /** Thử lại 1 prompt bị lỗi. */
-async function retrySingle(prompt) {
+async function retrySingle(prompt, itemRefFiles = []) {
   if (isRunning) { showToast('Đang chạy loạt khác, hãy đợi xong'); return; }
   setRunningState(true);
   const card = createQueueCard(prompt, 0, 1);
   setQueueCardRunning(card, 0, 1);
   updateProgress(0, 1, Date.now());
   try {
-    const data = await requestImages(prompt);
+    const data = await requestImages(prompt, itemRefFiles);
+    stopQueueCardTimer(card);
     card.remove();
     await renderResults(data.images, data.meta, prompt);
     showToast('Thử lại thành công');
   } catch (err) {
-    setQueueCardError(card, prompt, err.message, () => retrySingle(prompt));
+    setQueueCardError(card, prompt, err.message, () => retrySingle(prompt, itemRefFiles));
     showToast('Vẫn lỗi: ' + err.message);
   }
   updateProgress(1, 1, Date.now());
@@ -807,7 +970,6 @@ downloadAllBtn.addEventListener('click', async () => {
 });
 
 clearAllBtn.addEventListener('click', async () => {
-  // Đếm thực tế từ bộ nhớ thay vì tin vào biến đếm (tránh lệch số)
   let stored = [];
   try {
     stored = await getAllImages();
@@ -816,24 +978,38 @@ clearAllBtn.addEventListener('click', async () => {
   }
 
   const domCount = gallery.querySelectorAll('.card').length;
-  if (stored.length === 0 && domCount === 0) {
-    showToast('Chưa có ảnh nào để xoá');
+  const errorCount = gallery.querySelectorAll('.queue-card.is-error').length;
+
+  if (stored.length === 0 && domCount === 0 && errorCount === 0) {
+    showToast('Chưa có gì để xoá');
     return;
   }
 
-  const total = Math.max(stored.length, domCount);
-  if (!confirm(`Xoá ${total} ảnh đã lưu trong trình duyệt? Hành động này không hoàn tác được.`)) return;
+  const imgTotal = Math.max(stored.length, domCount);
+  let confirmMsg = '';
+  if (imgTotal > 0 && errorCount > 0) {
+    confirmMsg = `Xoá ${imgTotal} ảnh đã lưu và ${errorCount} thẻ lỗi?`;
+  } else if (imgTotal > 0) {
+    confirmMsg = `Xoá ${imgTotal} ảnh đã lưu trong trình duyệt?`;
+  } else {
+    confirmMsg = `Xoá ${errorCount} thẻ lỗi?`;
+  }
+  if (!confirm(confirmMsg + ' Hành động này không hoàn tác được.')) return;
 
-  // Xoá khỏi màn hình trước để phản hồi ngay, kể cả khi xoá bộ nhớ gặp lỗi
-  gallery.querySelectorAll('.card').forEach((c) => c.remove());
+  // Xoá cả thẻ ảnh lẫn thẻ lỗi khỏi màn hình (giữ lại thẻ đang chạy nếu có)
+  gallery.querySelectorAll('.card, .queue-card.is-error').forEach((c) => c.remove());
   resultCount = 0;
 
-  try {
-    await clearAllImages();
-    showToast(`Đã xoá ${total} ảnh`);
-  } catch (e) {
-    console.error('Lỗi xoá ảnh trong bộ nhớ:', e);
-    showError('Đã xoá khỏi màn hình nhưng không xoá được trong bộ nhớ trình duyệt. Thử tải lại trang rồi xoá lại.');
+  if (imgTotal > 0) {
+    try {
+      await clearAllImages();
+      showToast(`Đã xoá ${imgTotal} ảnh${errorCount ? ` và ${errorCount} thẻ lỗi` : ''}`);
+    } catch (e) {
+      console.error('Lỗi xoá ảnh trong bộ nhớ:', e);
+      showError('Đã xoá khỏi màn hình nhưng không xoá được trong bộ nhớ trình duyệt. Thử tải lại trang rồi xoá lại.');
+    }
+  } else {
+    showToast(`Đã xoá ${errorCount} thẻ lỗi`);
   }
 
   refreshResultsMeta();
